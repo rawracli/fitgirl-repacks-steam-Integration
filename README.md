@@ -4,7 +4,7 @@ A powerful Userscript that enhances [FitGirl Repacks](https://fitgirl-repacks.si
 
 ## Installation
 
-1. Install the [Violentmonkey](https://violentmonkey.github.io/get-it/) (or other userscript manager) extension for your browser (Chrome, Firefox, Edge, etc.).
+1. Install the [Violentmonkey](https://violentmonkey.github.io/get-it/) (or other userscript manager) extension for your browser.
 2. [Install this script](https://update.greasyfork.org/scripts/563941/Fitgirl%20Repacks%20-%20Steam%20Integration.user.js)
 
 
