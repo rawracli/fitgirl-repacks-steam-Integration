@@ -32,7 +32,3 @@ The script operates as a single-page application enhancer. It identifies game pa
 
 ## Development
 To contribute, ensure you follow the existing code style. The script is written in Vanilla JS (ES6+) for maximum compatibility and performance.
-
----
-**License**: MIT  
-**Author**: rawracli
