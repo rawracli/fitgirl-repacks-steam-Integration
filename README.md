@@ -1,6 +1,12 @@
 # Fitgirl Repacks - Steam Integration
 
-A powerful Tampermonkey/Userscript that enhances [FitGirl Repacks](https://fitgirl-repacks.site/) by injecting real-time data from the Steam Store.
+A powerful Userscript that enhances [FitGirl Repacks](https://fitgirl-repacks.site/) by injecting real-time data from the Steam Store.
+
+## Installation
+
+1. Install the [Violentmonkey](https://violentmonkey.github.io/get-it/) (or other userscript manager) extension for your browser (Chrome, Firefox, Edge, etc.).
+2. [Install this script](https://update.greasyfork.org/scripts/563941/Fitgirl%20Repacks%20-%20Steam%20Integration.user.js)
+
 
 ## Technical Details
 
@@ -21,7 +27,8 @@ The script operates as a single-page application enhancer. It identifies game pa
 - **Optimization**: Minimal DOM footprints and efficient TreeWalker traversal for finding injection points.
 
 ## Project Structure
-- `Fitgirl-Repacks Direct Steam Link.js`: The main userscript source (minified/comment-free version is recommended for distribution).
+- `Fitgirl_Repacks_Steam_Integration.user.js`: The main userscript source.
+- `Fitgirl_Repacks_Steam_Integration.dev.js` : Development version with comments and debug logs.
 
 ## Development
 To contribute, ensure you follow the existing code style. The script is written in Vanilla JS (ES6+) for maximum compatibility and performance.
