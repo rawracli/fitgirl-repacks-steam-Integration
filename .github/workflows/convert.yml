@@ -1,0 +1,28 @@
+name: Convert UserScript
+
+on:
+  workflow_dispatch:
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Conversion Script
+        run: node .github/scripts/convert_script.js
+
+      - name: Commit User Script
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "build: generate user script from dev source"
+          file_pattern: Fitgirl_Repacks_Steam_Integration.user.js
