@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fitgirl Repacks - Steam Integration
 // @namespace    https://greasyfork.org/id/users/1217958
-// @version      1.2
+// @version      1.3
 // @description  Adds Steam Store information (Reviews, Tags, System Requirements, Age Rating) directly to FitGirl Repacks game pages.
 // @author       rawracli
 // @match        https://fitgirl-repacks.site/*
@@ -132,7 +132,8 @@
             reviews: extractReviews(doc),
             tags: extractTags(doc),
             ageRating: extractAgeRating(doc),
-            sysReqs: extractSysReqs(doc)
+            sysReqs: extractSysReqs(doc),
+            metacritic: extractMetacritic(doc)
         };
         injectToFitGirl(data);
     }
@@ -159,6 +160,10 @@
     function extractAgeRating(doc) {
         const rating = doc.querySelector('.shared_game_rating');
         return rating ? rating.outerHTML : null;
+    }
+    function extractMetacritic(doc) {
+        const meta = doc.querySelector('#game_area_metascore');
+        return meta ? meta.outerHTML : null;
     }
     function extractSysReqs(doc) {
         const container = doc.querySelector('.sysreq_contents');
@@ -200,50 +205,128 @@
             reviewSpan.innerHTML = `${starSvg} ${data.reviews}`;
             targetMeta.appendChild(reviewSpan);
         }
-        if (data.ageRating) {
-            const ageDiv = document.createElement('div');
-            ageDiv.innerHTML = data.ageRating;
-            ageDiv.style.marginTop = '10px';
-            ageDiv.style.border = '1px solid #333';
-            ageDiv.style.padding = '5px';
-            ageDiv.style.backgroundColor = '#1b2838'; // Steam dark
+        if (data.ageRating || data.metacritic) {
             const style = document.createElement('style');
             style.textContent = `
                 .shared_game_rating { display: flex; gap: 10px; font-family: Arial, sans-serif; color: #acb2b8; }
                 .game_rating_icon img { width: 50px; }
                 .game_rating_descriptors { font-size: 11px; }
                 .descriptorText { margin: 0px; }
+                #game_area_metascore {
+                    background-color: rgb(27, 40, 56);
+                    border: 1px solid rgb(51, 51, 51);
+                    display: inline-flex;
+                    align-items: center;
+                    padding-right: 10px;
+                }
+                #game_area_metascore .score {
+                    font-size: 35px;
+                    font-weight: bold;
+                    color: #fff;
+                    padding: 10px 14px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
+                    box-sizing: border-box;
+                    min-height: 52px;
+                    min-width: 52px;
+                }
+                #game_area_metascore .score.high { background-color: #66cc33 !important; color: white !important; }
+                #game_area_metascore .score.mixed { background-color: #ffcc33 !important; color: white !important; }
+                #game_area_metascore .score.low { background-color: #ff3333 !important; color: white !important; }
+                #game_area_metascore .logo {
+                    background-image: url('https://store.fastly.steamstatic.com/public/images/v6/mc_logo_no_text.png');
+                    background-repeat: no-repeat;
+                    background-position: center;
+                    background-size: contain;
+                    width: 37px;
+                    height: 37px;
+                    margin-left: 10px;
+                }
+                #game_area_metascore .wordmark {
+                    margin-left: 5px;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    line-height: 1.1;
+                }
+                #game_area_metascore .metacritic {
+                    color: #fff;
+                    font-size: 26px;
+                    font-weight: bold;
+                }
+                #game_area_metalink {
+                     margin-top: -2px;
+                }
+                #game_area_metalink a {
+                    color: #fff;
+                    text-decoration: none;
+                    opacity: 0.8;
+                    font-size: 10px;
+                }
+                 #game_area_metalink a:hover {
+                    text-decoration: underline;
+                    opacity: 1;
+                 }
             `;
             document.head.appendChild(style);
             const firstP = content.querySelector('p');
             if (firstP) {
-                const helperDiv = document.createElement('div');
-                helperDiv.innerHTML = data.ageRating;
-                const ratingRoot = helperDiv.querySelector('.shared_game_rating');
-                if (ratingRoot) {
-                    const iconDiv = ratingRoot.querySelector('.game_rating_icon');
-                    const agencyDiv = ratingRoot.querySelector('.game_rating_agency');
-                    const descriptorsDiv = ratingRoot.querySelector('.game_rating_descriptors');
-                    ratingRoot.innerHTML = '';
-                    const detailsDiv = document.createElement('div');
-                    detailsDiv.className = 'game_rating_details';
-                    if (iconDiv) detailsDiv.appendChild(iconDiv);
-                    ratingRoot.appendChild(detailsDiv);
-                    if (agencyDiv) {
-                        if (descriptorsDiv) {
-                            agencyDiv.appendChild(descriptorsDiv);
+                const combinedContainer = document.createElement('div');
+                combinedContainer.style.marginTop = '10px';
+                combinedContainer.style.display = 'flex';
+                combinedContainer.style.gap = '15px';
+                combinedContainer.style.flexWrap = 'wrap';
+                combinedContainer.style.alignItems = 'flex-start';
+                if (data.ageRating) {
+                    const helperDiv = document.createElement('div');
+                    helperDiv.innerHTML = data.ageRating;
+                    const ratingRoot = helperDiv.querySelector('.shared_game_rating');
+                    if (ratingRoot) {
+                        const iconDiv = ratingRoot.querySelector('.game_rating_icon');
+                        const agencyDiv = ratingRoot.querySelector('.game_rating_agency');
+                        const descriptorsDiv = ratingRoot.querySelector('.game_rating_descriptors');
+                        ratingRoot.innerHTML = '';
+                        const detailsDiv = document.createElement('div');
+                        detailsDiv.className = 'game_rating_details';
+                        if (iconDiv) detailsDiv.appendChild(iconDiv);
+                        ratingRoot.appendChild(detailsDiv);
+                        if (agencyDiv) {
+                            if (descriptorsDiv) agencyDiv.appendChild(descriptorsDiv);
+                            ratingRoot.appendChild(agencyDiv);
                         }
-                        ratingRoot.appendChild(agencyDiv);
+                        ratingRoot.appendChild(document.createElement('br'));
+                        const ageContainer = document.createElement('div');
+                        ageContainer.style.border = '1px solid #333';
+                        ageContainer.style.padding = '5px';
+                        ageContainer.style.backgroundColor = '#1b2838';
+                        ageContainer.style.display = 'inline-block';
+                        ageContainer.appendChild(ratingRoot);
+                        combinedContainer.appendChild(ageContainer);
                     }
-                    ratingRoot.appendChild(document.createElement('br'));
-                    const ageContainer = document.createElement('div');
-                    ageContainer.style.marginTop = '10px';
-                    ageContainer.style.border = '1px solid';
-                    ageContainer.style.padding = '5px';
-                    ageContainer.style.display = 'inline-block';
-                    ageContainer.appendChild(ratingRoot);
-                    firstP.parentNode.insertBefore(ageContainer, firstP.nextSibling);
-                    let nextElem = ageContainer.nextElementSibling;
+                }
+                if (data.metacritic) {
+                    /*
+                       <div id="game_area_metascore">
+                           <div class="score high">87</div>
+                           <div class="logo"></div>
+                           <div class="wordmark">
+                               <span class="metacritic">metacritic</span>
+                               <div id="game_area_metalink">
+                                    <a href="...">Read Critic Reviews</a>
+                                    <img src="https://store.fastly.steamstatic.com/public/images/ico/iconExternalLink.gif" border="0" align="bottom">
+                               </div>
+                           </div>
+                       </div>
+                    */
+                    const metaContainer = document.createElement('div');
+                    metaContainer.innerHTML = data.metacritic;
+                    combinedContainer.appendChild(metaContainer);
+                }
+                if (combinedContainer.childNodes.length > 0) {
+                    firstP.parentNode.insertBefore(combinedContainer, firstP.nextSibling);
+                    let nextElem = combinedContainer.nextElementSibling;
                     if (nextElem && nextElem.tagName === 'P') {
                         if (!nextElem.textContent.trim() || nextElem.innerHTML.includes('&nbsp;')) {
                             nextElem.remove();
@@ -356,41 +439,41 @@
             }
             const srStyle = document.createElement('style');
             srStyle.textContent = `
-                .steam-sys-reqs br { display: none; } 
-                .steam-sys-reqs strong { color: #66c0f4; font-weight: normal; } 
+                .steam-sys-reqs br { display: none; }
+                .steam-sys-reqs strong { color: #66c0f4; font-weight: normal; }
                 .sysreq-os-title {
                     font-weight: bold;
                     border-bottom: 1px solid #333;
                     padding-bottom: 3px;
                 }
-                .steam-sys-reqs .game_area_sys_req { 
+                .steam-sys-reqs .game_area_sys_req {
                     display: block !important; 
-                    margin-bottom: 15px; 
-                    border-bottom: 1px solid rgba(255,255,255,0.1); 
+                    margin-bottom: 15px;
+                    border-bottom: 1px solid rgba(255,255,255,0.1);
                     padding-bottom: 10px;
                 }
                 .steam-sys-reqs .game_area_sys_req.active { display: block; }
-                .steam-sys-reqs .game_area_sys_req_leftCol, 
-                .steam-sys-reqs .game_area_sys_req_rightCol { 
-                    float: left; 
-                    width: 48%; 
-                    margin-right: 2%; 
+                .steam-sys-reqs .game_area_sys_req_leftCol,
+                .steam-sys-reqs .game_area_sys_req_rightCol {
+                    float: left;
+                    width: 48%;
+                    margin-right: 2%;
                 }
                 .steam-sys-reqs ul { list-style: none; padding: 0; margin: 0; }
                 .steam-sys-reqs ul.bb_ul { padding-left: 0; }
-                .steam-sys-reqs li { 
-                    margin-bottom: 4px; 
-                    line-height: 1.4; 
-                    color: #acb2b8; 
-                    font-size: 12px; 
+                .steam-sys-reqs li {
+                    margin-bottom: 4px;
+                    line-height: 1.4;
+                    color: #acb2b8;
+                    font-size: 12px;
                 }
-                .steam-sys-reqs::after, .steam-sys-reqs .game_area_sys_req::after { 
-                    content: ""; display: table; clear: both; 
+                .steam-sys-reqs::after, .steam-sys-reqs .game_area_sys_req::after {
+                    content: ""; display: table; clear: both;
                 }
                 @media(max-width: 600px) {
-                    .steam-sys-reqs .game_area_sys_req_leftCol, 
-                    .steam-sys-reqs .game_area_sys_req_rightCol { 
-                        float: none; width: 100%; margin-bottom: 10px; 
+                    .steam-sys-reqs .game_area_sys_req_leftCol,
+                    .steam-sys-reqs .game_area_sys_req_rightCol {
+                        float: none; width: 100%; margin-bottom: 10px;
                     }
                 }
             `;
@@ -398,4 +481,4 @@
         }
     }
     run();
-})();
+})();

@@ -10,6 +10,7 @@ This script helps you see critical game details without having to open a new tab
 - **Steam Reviews**: View the game's overall rating (e.g., "Very Positive") directly at the top of the page.
 - **Extra Tags**: Adds more comprehensive genre labels from Steam.
 - **Age Rating**: Displays the age rating (PEGI/ESRB) complete with icons and descriptions if available.
+- **Metacritic**: Displays the Metacritic score if available.
 - **System Requirements**: Shows official Minimum & Recommended specs from Steam in a clean, easy-to-read box below the game description.
 
 ## Installation
@@ -30,6 +31,7 @@ The script operates as a single-page application enhancer. It identifies game pa
     - **Reviews**: Injects overall Steam review scores into the post metadata (entry-header).
     - **Tags**: Compares Steam's popular tags with FitGirl's existing tags, deduplicates them, and appends the top missing tags (capped at 10 total tags).
     - **Age Rating**: Dynamically rebuilds the PEGI/ESRB rating structure to match the FitGirl aesthetic, ensuring proper layout even when source HTML is complex.
+    - **Metacritic**: Injects Metacritic scores.
     - **System Requirements**: Injects Steam system requirements into a clean, "spoiler" block positioned after the game description.
 
 ### Implementation Specifics
