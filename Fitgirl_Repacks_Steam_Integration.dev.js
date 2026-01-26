@@ -226,8 +226,33 @@
     }
 
     function extractSysReqs(doc) {
-        const reqs = doc.querySelector('.sysreq_contents');
-        return reqs ? reqs.innerHTML : null;
+        const container = doc.querySelector('.sysreq_contents');
+        if (!container) return null;
+
+        // Handle multiple OS tabs
+        // Steam format: <div class="game_area_sys_req" data-os="win">
+        let reqs = Array.from(container.querySelectorAll('.game_area_sys_req'));
+
+        if (reqs.length === 0) {
+            return container.innerHTML; // Fallback to raw if no specific blocks found
+        }
+
+        let html = '';
+        reqs.forEach(req => {
+            const os = req.getAttribute('data-os');
+            let title = '';
+            if (os === 'win') title = 'Windows System Requirements';
+            else if (os === 'mac') title = 'macOS System Requirements';
+            else if (os === 'linux') title = 'Linux / SteamOS System Requirements';
+
+            // If we have a title, add it as H5
+            if (title) {
+                html += `<h5 class="sysreq-os-title" style="margin-bottom: 5px; margin-top: 15px; color: #66c0f4;">${title}</h5>`;
+            }
+            html += req.outerHTML;
+        });
+
+        return html;
     }
 
     // --- Injectors ---
@@ -401,14 +426,7 @@
         }
 
         // 4. Inject System Requirements Dropdown
-        // Find "Game Description" spoiler
-        const spoilers = content.querySelectorAll('.su-spoiler');
-        let descSpoiler = null;
-        spoilers.forEach(s => {
-            if (s.textContent.includes('Game Description')) descSpoiler = s;
-        });
-
-        if (descSpoiler && data.sysReqs) {
+        if (data.sysReqs) {
             // Create Sys Reqs SPOILER structure
             const newSpoiler = document.createElement('div');
             newSpoiler.className = 'su-spoiler su-spoiler-style-fancy su-spoiler-icon-plus';
@@ -424,19 +442,89 @@
                 </div>
             `;
 
-            // Insert after Description spoiler
-            descSpoiler.parentNode.insertBefore(newSpoiler, descSpoiler.nextSibling);
+            // Injection Logic: Try existing spoiler -> fallbacks
+            const spoilers = content.querySelectorAll('.su-spoiler');
+            let targetSpoiler = null;
+            spoilers.forEach(s => {
+                if (s.textContent.includes('Game Description')) targetSpoiler = s;
+            });
 
-            // Add styles for the SysReqs table from Steam to match look
+            if (targetSpoiler) {
+                targetSpoiler.parentNode.insertBefore(newSpoiler, targetSpoiler.nextSibling);
+            } else {
+                // FALLBACK REVISED: Repack Features (ul) > Screenshots (p) > Download Mirrors > End
+                let injected = false;
+                const findHeader = (text) => Array.from(content.querySelectorAll('h3, strong')).find(el => el.textContent.includes(text));
+
+                // 1. Repack Features
+                let elem = findHeader('Repack Features');
+                if (elem) {
+                    if (elem.tagName === 'STRONG') elem = elem.closest('p') || elem;
+                    // Find next UL
+                    let next = elem.nextElementSibling;
+                    while (next) {
+                        if (next.tagName === 'UL') {
+                            next.parentNode.insertBefore(newSpoiler, next.nextSibling);
+                            injected = true;
+                            break;
+                        }
+                        // Stop if we hit safe-guard elements to avoid infinite scan
+                        if (['H3', 'DIV'].includes(next.tagName) && next.textContent.trim().length > 5) break;
+                        next = next.nextElementSibling;
+                    }
+                }
+
+                // 2. Screenshots
+                if (!injected) {
+                    elem = findHeader('Screenshots');
+                    if (elem) {
+                        if (elem.tagName === 'STRONG') elem = elem.closest('p') || elem;
+                        let next = elem.nextElementSibling;
+                        if (next) {
+                            next.parentNode.insertBefore(newSpoiler, next.nextSibling);
+                            injected = true;
+                        }
+                    }
+                }
+
+                if (!injected) {
+                    // 3. Fallback: Download Mirrors or End
+                    const potentialHeaders = Array.from(content.querySelectorAll('h3, p strong, p'));
+                    let fallback = null;
+
+                    for (const el of potentialHeaders) {
+                        if (el.textContent.includes('Download Mirrors') || el.textContent.includes('Selective Download')) {
+                            // If it's a strong tag, get the parent P
+                            fallback = (el.tagName === 'STRONG') ? el.closest('p') : el;
+                            break;
+                        }
+                    }
+
+                    if (fallback) {
+                        fallback.parentNode.insertBefore(newSpoiler, fallback);
+                    } else {
+                        // Last resort: append to end of content
+                        content.appendChild(newSpoiler);
+                    }
+                }
+            }
+
+            // slightly modified styles to handle OS titles + ensuring visibility
             const srStyle = document.createElement('style');
             srStyle.textContent = `
                 /* Clean up potential junk from Steam HTML if any */
                 .steam-sys-reqs br { display: none; } 
                 .steam-sys-reqs strong { color: #66c0f4; font-weight: normal; } 
                 
+                .sysreq-os-title {
+                    font-weight: bold;
+                    border-bottom: 1px solid #333;
+                    padding-bottom: 3px;
+                }
+
                 /* Layout for SysReqs columns */
                 .steam-sys-reqs .game_area_sys_req { 
-                    display: block; 
+                    display: block !important; /* Force visible */
                     margin-bottom: 15px; 
                     border-bottom: 1px solid rgba(255,255,255,0.1); 
                     padding-bottom: 10px;
