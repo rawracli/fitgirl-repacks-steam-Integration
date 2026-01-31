@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Fitgirl Repacks - Steam Integration
 // @namespace    https://greasyfork.org/id/users/1217958
-// @version      1.3
-// @description  Adds Steam Store information (Reviews, Tags, System Requirements, Age Rating) directly to FitGirl Repacks game pages.
+// @version      1.4
+// @description  Adds Steam Store information (Reviews, Tags, System Requirements, Age Rating) directly to FitGirl Repacks.
 // @author       rawracli
 // @match        https://fitgirl-repacks.site/*
 // @icon         https://fitgirl-repacks.site/wp-content/uploads/2016/08/cropped-icon-32x32.jpg
@@ -15,62 +15,74 @@
 (function () {
     'use strict';
     function run() {
-        const isSinglePage = document.body.classList.contains('single-post') ||
-            (window.location.protocol === 'file:' && document.querySelector('h1.entry-title'));
-        if (!isSinglePage) {
+        const articles = document.querySelectorAll('article.post');
+        if (articles.length === 0) {
             return;
         }
-        const existingLink = findExistingSteamLink();
+        articles.forEach(article => {
+            processArticle(article);
+        });
+    }
+    function processArticle(article) {
+        const titleElem = article.querySelector('.entry-title');
+        if (titleElem) {
+            const titleText = titleElem.innerText || titleElem.textContent;
+            if (titleText.toLowerCase().includes('updates digest') || titleText.toLowerCase().includes('upcoming repacks')) {
+                return;
+            }
+        }
+        const existingLink = findExistingSteamLink(article);
         if (existingLink) {
-            updateBasicLinks(existingLink);
-            fetchSteamPage(existingLink);
+            updateBasicLinks(article, existingLink);
+            fetchSteamPage(existingLink, (data) => {
+                data.steamUrl = existingLink;
+                injectToFitGirl(article, data);
+            });
         } else {
-            const term = getSearchTerm();
+            const term = getSearchTerm(article);
             if (term) {
-                const placeholderUrl = 'https://store.steampowered.com/search/?term=' + encodeURIComponent(term);
-                updateBasicLinks(placeholderUrl); // Fallback immediatly
                 fetchSteamLinkBackground(term, (directUrl) => {
                     if (directUrl) {
-                        updateBasicLinks(directUrl);
-                        fetchSteamPage(directUrl); // Fetch full data
+                        updateBasicLinks(article, directUrl);
+                        fetchSteamPage(directUrl, (data) => {
+                            data.steamUrl = directUrl;
+                            injectToFitGirl(article, data);
+                        }); // Fetch full data
                     }
                 });
             }
         }
     }
-    function getSearchTerm() {
+    function getSearchTerm(article) {
         let term = "";
-        const path = window.location.pathname;
-        if (path.length > 1 && !path.includes('index.php')) {
-            term = path.replace(/^\/|\/$/g, '');
-        }
-        if (!term || window.location.protocol === 'file:') {
-            const h1 = document.querySelector('h1.entry-title');
-            if (h1) {
-                let raw = h1.textContent;
-                term = raw.split(/ – | - |\+/)[0].trim();
-            }
+        const titleElem = article.querySelector('.entry-title');
+        if (titleElem) {
+            let raw = titleElem.innerText || titleElem.textContent; // innerText often formatted better
+            raw = raw.replace(/FitGirl/i, "").replace(/Repack/i, "");
+            term = raw.split(/ – | - | \+|:/)[0].trim();
+            const suffixes = [
+                "Ultimate Edition",
+                "Digital Deluxe Edition",
+                "Deluxe Edition",
+                "GOTY Edition",
+                "Game of the Year Edition",
+                "Complete Edition",
+                "Enhanced Edition",
+                "Director's Cut"
+            ];
+            const regex = new RegExp(`(${suffixes.join('|')})`, 'gi');
+            term = term.replace(regex, "").trim();
         }
         return term;
     }
-    function findExistingSteamLink() {
-        const steamLink = document.querySelector('a[href^="http://store.steampowered.com/app/"], a[href^="https://store.steampowered.com/app/"]');
+    function findExistingSteamLink(article) {
+        if (!article) return null;
+        const steamLink = article.querySelector('a[href^="http://store.steampowered.com/app/"], a[href^="https://store.steampowered.com/app/"]');
         return steamLink ? steamLink.href : null;
     }
-    function updateBasicLinks(url) {
-        const title = document.querySelector('h1.entry-title');
-        if (title) {
-            let link = title.querySelector('a');
-            if (!link) {
-                const inner = title.innerHTML;
-                title.innerHTML = `<a href="${url}" target="_blank" title="Go to Steam">${inner}</a>`;
-                link = title.querySelector('a');
-            } else {
-                link.href = url;
-                link.target = "_blank";
-            }
-        }
-        const content = document.querySelector('.entry-content');
+    function updateBasicLinks(article, url) {
+        if (!article) return;
+        const content = article.querySelector('.entry-content');
         if (content) {
             const img = content.querySelector('img');
             if (img) {
@@ -82,8 +94,10 @@
                     const a = document.createElement('a');
                     a.href = url;
                     a.target = '_blank';
-                    img.parentNode.insertBefore(a, img);
-                    a.appendChild(img);
+                    if (img.parentNode) {
+                        img.parentNode.insertBefore(a, img);
+                        a.appendChild(img);
+                    }
                 }
             }
         }
@@ -111,7 +125,7 @@
             onerror: () => callback(null)
         });
     }
-    function fetchSteamPage(url) {
+    function fetchSteamPage(url, callback) {
         GM_xmlhttpRequest({
             method: "GET",
             url: url,
@@ -122,12 +136,12 @@
                 if (response.status === 200) {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(response.responseText, "text/html");
-                    extractAndInject(doc);
+                    extractAndInject(doc, callback);
                 }
             }
         });
     }
-    function extractAndInject(doc) {
+    function extractAndInject(doc, callback) {
         const data = {
             reviews: extractReviews(doc),
             tags: extractTags(doc),
@@ -135,7 +149,7 @@
             sysReqs: extractSysReqs(doc),
             metacritic: extractMetacritic(doc)
         };
-        injectToFitGirl(data);
+        if (callback) callback(data);
     }
     function extractReviews(doc) {
         const reviews = Array.from(doc.querySelectorAll('.user_reviews_summary_row'));
@@ -146,6 +160,10 @@
             if (summary) {
                 let text = summary.textContent.replace(/\s+/g, ' ').trim();
                 text = text.replace(/English Reviews\s*/i, '');
+                const match = text.match(/^(.+?)\s+\(([\d,.]+)\)\s+-\s+(\d+%)\s+of/);
+                if (match) {
+                    text = `${match[1]} (${match[3]} OF ${match[2]})`;
+                }
                 return text;
             }
         }
@@ -170,7 +188,7 @@
         if (!container) return null;
         let reqs = Array.from(container.querySelectorAll('.game_area_sys_req'));
         if (reqs.length === 0) {
-            return container.innerHTML; // Fallback to raw if no specific blocks found
+            return container.innerHTML;
         }
         let html = '';
         reqs.forEach(req => {
@@ -186,11 +204,10 @@
         });
         return html;
     }
-    function injectToFitGirl(data) {
-        const content = document.querySelector('.entry-content');
+    function injectToFitGirl(article, data) {
+        const content = article.querySelector('.entry-content');
         if (!content) return;
-        const entryMeta = content.closest('article').querySelector('.entry-header .entry-meta');
-        const metaDivs = document.querySelectorAll('.entry-header .entry-meta');
+        const metaDivs = article.querySelectorAll('.entry-header .entry-meta');
         let targetMeta = null;
         for (let div of metaDivs) {
             if (div.querySelector('.entry-date') || div.querySelector('.byline')) {
@@ -199,14 +216,18 @@
             }
         }
         if (targetMeta && data.reviews) {
-            const reviewSpan = document.createElement('span');
-            reviewSpan.className = 'steam-reviews';
-            const starSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="11" fill="currentColor" class="bi bi-star-fill" viewBox="0 0 16 16" style="margin-right: 1px;"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"></path></svg>`;
-            reviewSpan.innerHTML = `${starSvg} ${data.reviews}`;
-            targetMeta.appendChild(reviewSpan);
+            if (!targetMeta.querySelector('.steam-reviews')) {
+                const reviewSpan = document.createElement('span');
+                reviewSpan.className = 'steam-reviews';
+                reviewSpan.style.marginLeft = '10px';
+                const starSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="11" fill="currentColor" class="bi bi-star-fill" viewBox="0 0 16 16" style="margin-right: 1px;"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"></path></svg>`;
+                reviewSpan.innerHTML = `${starSvg} ${data.reviews}`;
+                targetMeta.appendChild(reviewSpan);
+            }
         }
-        if (data.ageRating || data.metacritic) {
+        if (!document.getElementById('steam-integration-styles')) {
             const style = document.createElement('style');
+            style.id = 'steam-integration-styles';
             style.textContent = `
                 .shared_game_rating { display: flex; gap: 10px; font-family: Arial, sans-serif; color: #acb2b8; }
                 .game_rating_icon img { width: 50px; }
@@ -271,64 +292,54 @@
                  }
             `;
             document.head.appendChild(style);
-            const firstP = content.querySelector('p');
-            if (firstP) {
-                const combinedContainer = document.createElement('div');
-                combinedContainer.style.marginTop = '10px';
-                combinedContainer.style.display = 'flex';
-                combinedContainer.style.gap = '15px';
-                combinedContainer.style.flexWrap = 'wrap';
-                combinedContainer.style.alignItems = 'flex-start';
-                if (data.ageRating) {
-                    const helperDiv = document.createElement('div');
-                    helperDiv.innerHTML = data.ageRating;
-                    const ratingRoot = helperDiv.querySelector('.shared_game_rating');
-                    if (ratingRoot) {
-                        const iconDiv = ratingRoot.querySelector('.game_rating_icon');
-                        const agencyDiv = ratingRoot.querySelector('.game_rating_agency');
-                        const descriptorsDiv = ratingRoot.querySelector('.game_rating_descriptors');
-                        ratingRoot.innerHTML = '';
-                        const detailsDiv = document.createElement('div');
-                        detailsDiv.className = 'game_rating_details';
-                        if (iconDiv) detailsDiv.appendChild(iconDiv);
-                        ratingRoot.appendChild(detailsDiv);
-                        if (agencyDiv) {
-                            if (descriptorsDiv) agencyDiv.appendChild(descriptorsDiv);
-                            ratingRoot.appendChild(agencyDiv);
+        }
+        if (data.ageRating || data.metacritic || data.steamUrl) {
+            if (!content.querySelector('.steam-rating-meta-container')) {
+                const firstP = content.querySelector('p');
+                if (firstP) {
+                    const combinedContainer = document.createElement('div');
+                    combinedContainer.className = 'steam-rating-meta-container';
+                    combinedContainer.style.marginTop = '10px';
+                    combinedContainer.style.display = 'flex';
+                    combinedContainer.style.gap = '15px';
+                    combinedContainer.style.flexWrap = 'wrap';
+                    combinedContainer.style.alignItems = 'flex-start';
+                    if (data.ageRating) {
+                        const helperDiv = document.createElement('div');
+                        helperDiv.innerHTML = data.ageRating;
+                        const ratingRoot = helperDiv.querySelector('.shared_game_rating');
+                        if (ratingRoot) {
+                            const iconDiv = ratingRoot.querySelector('.game_rating_icon');
+                            const agencyDiv = ratingRoot.querySelector('.game_rating_agency');
+                            const descriptorsDiv = ratingRoot.querySelector('.game_rating_descriptors');
+                            ratingRoot.innerHTML = '';
+                            const detailsDiv = document.createElement('div');
+                            detailsDiv.className = 'game_rating_details';
+                            if (iconDiv) detailsDiv.appendChild(iconDiv);
+                            ratingRoot.appendChild(detailsDiv);
+                            if (agencyDiv) {
+                                if (descriptorsDiv) agencyDiv.appendChild(descriptorsDiv);
+                                ratingRoot.appendChild(agencyDiv);
+                            }
+                            ratingRoot.appendChild(document.createElement('br'));
+                            const ageContainer = document.createElement('div');
+                            ageContainer.style.border = '1px solid #333';
+                            ageContainer.style.padding = '5px';
+                            ageContainer.style.backgroundColor = '#1b2838';
+                            ageContainer.style.display = 'inline-block';
+                            ageContainer.appendChild(ratingRoot);
+                            combinedContainer.appendChild(ageContainer);
                         }
-                        ratingRoot.appendChild(document.createElement('br'));
-                        const ageContainer = document.createElement('div');
-                        ageContainer.style.border = '1px solid #333';
-                        ageContainer.style.padding = '5px';
-                        ageContainer.style.backgroundColor = '#1b2838';
-                        ageContainer.style.display = 'inline-block';
-                        ageContainer.appendChild(ratingRoot);
-                        combinedContainer.appendChild(ageContainer);
                     }
-                }
-                if (data.metacritic) {
-                    /*
-                       <div id="game_area_metascore">
-                           <div class="score high">87</div>
-                           <div class="logo"></div>
-                           <div class="wordmark">
-                               <span class="metacritic">metacritic</span>
-                               <div id="game_area_metalink">
-                                    <a href="...">Read Critic Reviews</a>
-                                    <img src="https://store.fastly.steamstatic.com/public/images/ico/iconExternalLink.gif" border="0" align="bottom">
-                               </div>
-                           </div>
-                       </div>
-                    */
-                    const metaContainer = document.createElement('div');
-                    metaContainer.innerHTML = data.metacritic;
-                    combinedContainer.appendChild(metaContainer);
-                }
-                if (combinedContainer.childNodes.length > 0) {
-                    firstP.parentNode.insertBefore(combinedContainer, firstP.nextSibling);
-                    let nextElem = combinedContainer.nextElementSibling;
-                    if (nextElem && nextElem.tagName === 'P') {
-                        if (!nextElem.textContent.trim() || nextElem.innerHTML.includes('&nbsp;')) {
+                    if (data.metacritic) {
+                        const metaContainer = document.createElement('div');
+                        metaContainer.innerHTML = data.metacritic;
+                        combinedContainer.appendChild(metaContainer);
+                    }
+                    if (combinedContainer.childNodes.length > 0) {
+                        firstP.parentNode.insertBefore(combinedContainer, firstP.nextSibling);
+                        let nextElem = combinedContainer.nextElementSibling;
+                        if (nextElem && nextElem.tagName === 'P' && (!nextElem.textContent.trim() || nextElem.innerHTML.includes('&nbsp;'))) {
                             nextElem.remove();
                         }
                     }
@@ -336,26 +347,24 @@
             }
         }
         if (data.tags && data.tags.length > 0) {
-            const links = content.querySelectorAll('a');
             let tagsElement = null;
             const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null, false);
             while (walker.nextNode()) {
                 if (walker.currentNode.textContent.includes('Genres/Tags:')) {
-                    tagsElement = walker.currentNode.parentNode; // The <p> usually
+                    tagsElement = walker.currentNode.parentNode;
                     break;
                 }
             }
-            if (tagsElement) {
+            if (tagsElement && !tagsElement.querySelector('.steam-tags-injected')) {
                 const fullText = tagsElement.textContent.toLowerCase();
                 const existingTagLinks = tagsElement.querySelectorAll('a[href*="/tag/"]');
                 const existingTagCount = existingTagLinks.length;
                 const maxSteamTags = Math.max(0, 10 - existingTagCount);
-                const newTags = data.tags.filter(tag => {
-                    return !fullText.includes(tag.toLowerCase());
-                });
+                const newTags = data.tags.filter(tag => !fullText.includes(tag.toLowerCase()));
                 const tagsToAdd = newTags.slice(0, maxSteamTags);
                 if (tagsToAdd.length > 0) {
                     const steamTagsSpan = document.createElement('span');
+                    steamTagsSpan.className = 'steam-tags-injected';
                     steamTagsSpan.style.color = '#888';
                     steamTagsSpan.textContent = ', ' + tagsToAdd.join(', ');
                     const companyNode = Array.from(tagsElement.childNodes).find(n =>
@@ -374,111 +383,81 @@
                 }
             }
         }
-        if (data.sysReqs) {
+        if (data.sysReqs && !content.querySelector('.su-spoiler-steam-reqs')) {
             const newSpoiler = document.createElement('div');
-            newSpoiler.className = 'su-spoiler su-spoiler-style-fancy su-spoiler-icon-plus';
+            newSpoiler.className = 'su-spoiler su-spoiler-style-fancy su-spoiler-icon-plus su-spoiler-steam-reqs su-spoiler-closed';
             newSpoiler.setAttribute('data-scroll-offset', '0');
             newSpoiler.innerHTML = `
                 <div class="su-spoiler-title" tabindex="0" role="button">
                     <span class="su-spoiler-icon"></span>System Requirements
                 </div>
-                <div class="su-spoiler-content su-u-clearfix su-u-trim steam-sys-reqs">
+                <div class="su-spoiler-content su-u-clearfix su-u-trim steam-sys-reqs" style="display:none"> 
                     ${data.sysReqs}
                 </div>
             `;
-            const spoilers = content.querySelectorAll('.su-spoiler');
-            let targetSpoiler = null;
-            spoilers.forEach(s => {
-                if (s.textContent.includes('Game Description')) targetSpoiler = s;
+            newSpoiler.querySelector('.su-spoiler-title').addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const parent = this.parentNode;
+                const content = parent.querySelector('.su-spoiler-content');
+                if (parent.classList.contains('su-spoiler-closed')) {
+                    parent.classList.remove('su-spoiler-closed');
+                    content.style.display = 'block';
+                } else {
+                    parent.classList.add('su-spoiler-closed');
+                    content.style.display = 'none';
+                }
             });
-            if (targetSpoiler) {
-                targetSpoiler.parentNode.insertBefore(newSpoiler, targetSpoiler.nextSibling);
-            } else {
-                let injected = false;
-                const findHeader = (text) => Array.from(content.querySelectorAll('h3, strong')).find(el => el.textContent.includes(text));
-                let elem = findHeader('Repack Features');
-                if (elem) {
-                    if (elem.tagName === 'STRONG') elem = elem.closest('p') || elem;
-                    let next = elem.nextElementSibling;
-                    while (next) {
-                        if (next.tagName === 'UL') {
-                            next.parentNode.insertBefore(newSpoiler, next.nextSibling);
-                            injected = true;
-                            break;
-                        }
-                        if (['H3', 'DIV'].includes(next.tagName) && next.textContent.trim().length > 5) break;
-                        next = next.nextElementSibling;
+            let injected = false;
+            const findHeader = (text) => Array.from(content.querySelectorAll('h3, strong')).find(el => el.textContent.includes(text));
+            let elem = findHeader('Repack Features');
+            if (elem) {
+                if (elem.tagName === 'STRONG') elem = elem.closest('p') || elem;
+                let next = elem.nextElementSibling;
+                while (next) {
+                    if (next.tagName === 'UL') {
+                        next.parentNode.insertBefore(newSpoiler, next.nextSibling);
+                        injected = true;
+                        break;
                     }
-                }
-                if (!injected) {
-                    elem = findHeader('Screenshots');
-                    if (elem) {
-                        if (elem.tagName === 'STRONG') elem = elem.closest('p') || elem;
-                        let next = elem.nextElementSibling;
-                        if (next) {
-                            next.parentNode.insertBefore(newSpoiler, next.nextSibling);
-                            injected = true;
-                        }
-                    }
-                }
-                if (!injected) {
-                    const potentialHeaders = Array.from(content.querySelectorAll('h3, p strong, p'));
-                    let fallback = null;
-                    for (const el of potentialHeaders) {
-                        if (el.textContent.includes('Download Mirrors') || el.textContent.includes('Selective Download')) {
-                            fallback = (el.tagName === 'STRONG') ? el.closest('p') : el;
-                            break;
-                        }
-                    }
-                    if (fallback) {
-                        fallback.parentNode.insertBefore(newSpoiler, fallback);
-                    } else {
-                        content.appendChild(newSpoiler);
-                    }
+                    if (['H3', 'DIV'].includes(next.tagName) && next.textContent.trim().length > 5) break;
+                    next = next.nextElementSibling;
                 }
             }
-            const srStyle = document.createElement('style');
-            srStyle.textContent = `
-                .steam-sys-reqs br { display: none; }
-                .steam-sys-reqs strong { color: #66c0f4; font-weight: normal; }
-                .sysreq-os-title {
-                    font-weight: bold;
-                    border-bottom: 1px solid #333;
-                    padding-bottom: 3px;
-                }
-                .steam-sys-reqs .game_area_sys_req {
-                    display: block !important; 
-                    margin-bottom: 15px;
-                    border-bottom: 1px solid rgba(255,255,255,0.1);
-                    padding-bottom: 10px;
-                }
-                .steam-sys-reqs .game_area_sys_req.active { display: block; }
-                .steam-sys-reqs .game_area_sys_req_leftCol,
-                .steam-sys-reqs .game_area_sys_req_rightCol {
-                    float: left;
-                    width: 48%;
-                    margin-right: 2%;
-                }
-                .steam-sys-reqs ul { list-style: none; padding: 0; margin: 0; }
-                .steam-sys-reqs ul.bb_ul { padding-left: 0; }
-                .steam-sys-reqs li {
-                    margin-bottom: 4px;
-                    line-height: 1.4;
-                    color: #acb2b8;
-                    font-size: 12px;
-                }
-                .steam-sys-reqs::after, .steam-sys-reqs .game_area_sys_req::after {
-                    content: ""; display: table; clear: both;
-                }
-                @media(max-width: 600px) {
-                    .steam-sys-reqs .game_area_sys_req_leftCol,
-                    .steam-sys-reqs .game_area_sys_req_rightCol {
-                        float: none; width: 100%; margin-bottom: 10px;
+            if (!injected) {
+                const potentialHeaders = Array.from(content.querySelectorAll('h3, p strong, p'));
+                let fallback = null;
+                for (const el of potentialHeaders) {
+                    if (el.textContent.includes('Download Mirrors') || el.textContent.includes('Selective Download') || el.textContent.includes('Screenshots')) {
+                        fallback = (el.tagName === 'STRONG') ? el.closest('p') : el;
+                        break;
                     }
                 }
-            `;
-            document.head.appendChild(srStyle);
+                if (fallback) {
+                    fallback.parentNode.insertBefore(newSpoiler, fallback);
+                } else {
+                    content.appendChild(newSpoiler);
+                }
+            }
+            if (!document.getElementById('steam-sysreqs-styles')) {
+                const srStyle = document.createElement('style');
+                srStyle.id = 'steam-sysreqs-styles';
+                srStyle.textContent = `
+                    .steam-sys-reqs br { display: none; }
+                    .steam-sys-reqs strong { color: #66c0f4; font-weight: normal; }
+                    .sysreq-os-title { font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 3px; }
+                    .steam-sys-reqs .game_area_sys_req { display: block !important; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+                    .steam-sys-reqs .game_area_sys_req_leftCol, .steam-sys-reqs .game_area_sys_req_rightCol { float: left; width: 48%; margin-right: 2%; }
+                    .steam-sys-reqs ul { list-style: none; padding: 0; margin: 0; }
+                    .steam-sys-reqs li { margin-bottom: 4px; line-height: 1.4; color: #acb2b8; font-size: 12px; }
+                    .steam-sys-reqs::after, .steam-sys-reqs .game_area_sys_req::after { content: ""; display: table; clear: both; }
+                    @media(max-width: 600px) {
+                        .steam-sys-reqs .game_area_sys_req_leftCol, .steam-sys-reqs .game_area_sys_req_rightCol { float: none; width: 100%; margin-bottom: 10px; }
+                    }
+                 `;
+                document.head.appendChild(srStyle);
+            }
         }
     }
     run();
-})();
+})();
