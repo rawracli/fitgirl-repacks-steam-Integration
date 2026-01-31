@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fitgirl Repacks - Steam Integration
 // @namespace    https://greasyfork.org/id/users/1217958
-// @version      1.4
+// @version      1.5
 // @description  Adds Steam Store information (Reviews, Tags, System Requirements, Age Rating) directly to FitGirl Repacks.
 // @author       rawracli
 // @match        https://fitgirl-repacks.site/*
@@ -59,7 +59,7 @@
         if (titleElem) {
             let raw = titleElem.innerText || titleElem.textContent; // innerText often formatted better
             raw = raw.replace(/FitGirl/i, "").replace(/Repack/i, "");
-            term = raw.split(/ – | - | \+|:/)[0].trim();
+            term = raw.split(/ – | - | \+/)[0].trim();
             const suffixes = [
                 "Ultimate Edition",
                 "Digital Deluxe Edition",

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fitgirl Repacks - Steam Integration
 // @namespace    https://greasyfork.org/id/users/1217958
-// @version      1.4
+// @version      1.5
 // @description  Adds Steam Store information (Reviews, Tags, System Requirements, Age Rating) directly to FitGirl Repacks.
 // @author       rawracli
 // @match        https://fitgirl-repacks.site/*
@@ -95,7 +95,7 @@
             // 2. Split by common separators to get the base title
             // Split by: " – ", " - ", " + ", ":"
             // This handles "Game Name - v1.0", "Game Name: Ultimate Edition"
-            term = raw.split(/ – | - | \+|:/)[0].trim();
+            term = raw.split(/ – | - | \+/)[0].trim();
 
             // 3. strip common "Edition" suffixes if they survived the split (e.g. if no separator was used)
             const suffixes = [
