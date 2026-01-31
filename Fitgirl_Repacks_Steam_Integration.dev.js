@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fitgirl Repacks - Steam Integration
 // @namespace    https://greasyfork.org/id/users/1217958
-// @version      1.5
+// @version      1.6
 // @description  Adds Steam Store information (Reviews, Tags, System Requirements, Age Rating) directly to FitGirl Repacks.
 // @author       rawracli
 // @match        https://fitgirl-repacks.site/*
@@ -63,7 +63,16 @@
                 // We don't update basic links with search result immediately on search pages
                 // because it might loop or be annoying.
 
-                fetchSteamLinkBackground(term, (directUrl) => {
+                // Clean FitGirl title for validation
+                let validationTitle = "";
+                if (titleElem) {
+                    let raw = titleElem.innerText || titleElem.textContent;
+                    // Remove standard FitGirl branding
+                    raw = raw.replace(/FitGirl/i, "").replace(/Repack/i, "");
+                    validationTitle = raw.split(/ – | - | \+|,\s/)[0].trim();
+                }
+
+                fetchSteamLinkBackground(term, validationTitle, (directUrl) => {
                     if (directUrl) {
                         updateBasicLinks(article, directUrl);
                         fetchSteamPage(directUrl, (data) => {
@@ -82,35 +91,31 @@
 
     function getSearchTerm(article) {
         let term = "";
+        let url = "";
 
-        // On single page, we might check URL, but for multi-page we rely on the H1/Entry Title within the article
-        const titleElem = article.querySelector('.entry-title');
+        // 1. Try to find the link in the article title (Best for Multi-page & Single page fallback)
+        const titleLink = article.querySelector('.entry-title a');
+        if (titleLink) {
+            url = titleLink.href;
+        } else {
+            // 2. Fallback to current window location (Single page context where title might not be a link)
+            url = window.location.href;
+        }
 
-        if (titleElem) {
-            let raw = titleElem.innerText || titleElem.textContent; // innerText often formatted better
+        if (url) {
+            // Remove hash/fragment from URL first (e.g., #respond, #comments)
+            url = url.split('#')[0];
 
-            // 1. Remove "Repack", "FitGirl" just in case (usually not there but good safety)
-            raw = raw.replace(/FitGirl/i, "").replace(/Repack/i, "");
+            // Extract slug from URL: https://site.com/game-name-slug/ -> game-name-slug
+            // Split by '/' and remove empty strings
+            const parts = url.split('/').filter(p => p.length > 0);
+            // The slug is usually the last part
+            const slug = parts[parts.length - 1];
 
-            // 2. Split by common separators to get the base title
-            // Split by: " – ", " - ", " + ", ":"
-            // This handles "Game Name - v1.0", "Game Name: Ultimate Edition"
-            term = raw.split(/ – | - | \+/)[0].trim();
+            // Clean up slug to make it a search term
+            term = slug.replace(/-/g, ' ');
 
-            // 3. strip common "Edition" suffixes if they survived the split (e.g. if no separator was used)
-            const suffixes = [
-                "Ultimate Edition",
-                "Digital Deluxe Edition",
-                "Deluxe Edition",
-                "GOTY Edition",
-                "Game of the Year Edition",
-                "Complete Edition",
-                "Enhanced Edition",
-                "Director's Cut"
-            ];
-
-            const regex = new RegExp(`(${suffixes.join('|')})`, 'gi');
-            term = term.replace(regex, "").trim();
+            log("Slug extracted: ", slug, " -> Term: ", term);
         }
 
         return term;
@@ -151,7 +156,7 @@
     // Fetching & Scraping
     // ==========================================
 
-    function fetchSteamLinkBackground(term, callback) {
+    function fetchSteamLinkBackground(term, validationTitle, callback) {
         if (typeof GM_xmlhttpRequest === 'undefined') { callback(null); return; }
 
         const searchUrl = `https://store.steampowered.com/search/?term=${encodeURIComponent(term)}&category1=998`;
@@ -164,9 +169,50 @@
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(response.responseText, "text/html");
                     const firstResult = doc.querySelector('#search_resultsRows > a');
+
                     if (firstResult) {
-                        log("Background search match:", firstResult.href);
-                        callback(firstResult.href);
+                        // Validation
+                        if (validationTitle) {
+                            const steamTitleElem = firstResult.querySelector('.title');
+                            if (steamTitleElem) {
+                                const steamTitle = steamTitleElem.textContent.trim();
+
+                                // Normalize for comparison: 
+                                // 1. Lowercase
+                                // 2. Replace fancy apostrophes
+                                // 3. Remove non-alphanumeric chars (punctuation) to strictly compare words
+                                const normalize = (str) => str.toLowerCase().replace(/’/g, "'").replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+
+                                const sT = normalize(steamTitle);
+                                const vT = normalize(validationTitle);
+
+                                // Check for loose match
+                                if (sT.includes(vT) || vT.includes(sT)) {
+                                    log("Background search match validated:", firstResult.href);
+                                    callback(firstResult.href);
+                                } else {
+                                    log(`Validation Failed. Steam: "${steamTitle}" vs FitGirl: "${validationTitle}"`);
+
+                                    // Retry logic: Remove last word from term
+                                    const words = term.split(' ');
+                                    if (words.length > 1) {
+                                        words.pop();
+                                        const newTerm = words.join(' ');
+                                        log("Retrying with term:", newTerm);
+                                        fetchSteamLinkBackground(newTerm, validationTitle, callback);
+                                    } else {
+                                        log("No more words to retry. Validation failed.");
+                                        callback(null);
+                                    }
+                                }
+                            } else {
+                                // Can't find title
+                                callback(firstResult.href);
+                            }
+                        } else {
+                            // No validation title provided
+                            callback(firstResult.href);
+                        }
                     } else {
                         log("No Steam search results.");
                         callback(null);
@@ -310,6 +356,18 @@
                 const starSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="11" fill="currentColor" class="bi bi-star-fill" viewBox="0 0 16 16" style="margin-right: 1px;"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"></path></svg>`;
                 reviewSpan.innerHTML = `${starSvg} ${data.reviews}`;
                 targetMeta.appendChild(reviewSpan);
+
+                // Add Go to Steam Page link
+                if (data.steamUrl) {
+                    const steamLinkSpan = document.createElement('span');
+                    steamLinkSpan.className = 'steam-store-link';
+                    steamLinkSpan.style.marginLeft = '10px';
+                    const steamSvg = `<svg fill="currentColor" viewBox="0 -2 28 28" xmlns="http://www.w3.org/2000/svg" width="15" height="15" style="margin-right: 4px; vertical-align: text-top;" data-darkreader-inline-fill=""><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"><path d="m24.72 7.094c0 2.105-1.707 3.812-3.812 3.812-1.053 0-2.006-.427-2.696-1.117-.74-.697-1.201-1.684-1.201-2.778 0-2.105 1.707-3.812 3.812-3.812 1.094 0 2.08.461 2.776 1.199l.002.002c.691.669 1.12 1.605 1.12 2.641v.055-.003zm-12.033 11.593c0-.004 0-.008 0-.012 0-2.151-1.744-3.894-3.894-3.894-.004 0-.008 0-.013 0h.001c-.299 0-.59.034-.87.099l.026-.005 1.625.656c.778.303 1.387.897 1.704 1.644l.007.02c.164.356.26.772.26 1.21 0 .418-.087.816-.244 1.176l.007-.019c-.304.778-.901 1.386-1.652 1.696l-.02.007c-.355.161-.77.254-1.206.254-.422 0-.824-.088-1.188-.246l.019.007q-.328-.125-.969-.383l-.953-.383c.337.627.82 1.138 1.405 1.498l.017.01c.568.358 1.258.571 1.999.571h.034-.002.012c2.151 0 3.894-1.744 3.894-3.894 0-.004 0-.008 0-.013v.001zm12.969-11.577c-.005-2.63-2.136-4.761-4.765-4.766-2.631.002-4.763 2.135-4.763 4.766s2.134 4.766 4.766 4.766c1.313 0 2.503-.531 3.364-1.391.863-.834 1.399-2.003 1.399-3.296 0-.028 0-.056-.001-.083zm2.344 0v.001c0 3.926-3.183 7.109-7.109 7.109h-.001l-6.828 4.981c-.116 1.361-.749 2.556-1.698 3.402l-.005.004c-.914.863-2.151 1.394-3.512 1.394-.023 0-.046 0-.069 0h.004c-2.534-.002-4.652-1.777-5.181-4.152l-.007-.035-3.594-1.438v-6.703l6.08 2.453c.758-.471 1.679-.75 2.664-.75h.041-.002q.203 0 .547.031l4.438-6.359c.05-3.898 3.218-7.04 7.122-7.047h.001c3.924.006 7.104 3.185 7.11 7.109v.001z"></path></g></svg>`;
+
+                    // Match font/size with existing meta
+                    steamLinkSpan.innerHTML = `<a href="${data.steamUrl}" target="_blank" style="color: inherit; text-decoration: none;">${steamSvg}Go to Steam Page</a>`;
+                    targetMeta.appendChild(steamLinkSpan);
+                }
             }
         }
 
@@ -368,6 +426,9 @@
                 #game_area_metalink { margin-top: -2px; }
                 #game_area_metalink a { color: #fff; text-decoration: none; opacity: 0.8; font-size: 10px; }
                 #game_area_metalink a:hover { text-decoration: underline; opacity: 1; }
+
+                /* Go to Steam link hover */
+                .steam-store-link a:hover { color: #66cc33 !important; }
              `;
             document.head.appendChild(style);
         }
